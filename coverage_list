@@ -1,0 +1,136 @@
+#!/usr/bin/python3
+#+
+# Example use of python_fontconfig: find fonts covering given code blocks.
+# Invoke this script as
+#
+#    coverage_list [--trim] «blockname»
+#
+# where «blockname» is the name of one of the Unicode code blocks, as
+# listed in the accompanying code_blocks.py module. The output will a
+# list of font specs, sorted in order of decreasing coverage of the
+# specified code block, indicating which code points are
+# present/missing for each. The --trim option indicates to omit fonts
+# that only cover the same code points as previous fonts.
+#
+# For example, the command
+#
+#     coverage_list --trim "Box Drawing"
+#
+# will output a trimmed list of fonts that include characters in the
+# Box Drawing block.
+#
+# Copyright 2020 by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>. This
+# script is licensed CC0
+# <https://creativecommons.org/publicdomain/zero/1.0/>; do with it
+# what you will.
+#-
+
+import sys
+import unicodedata
+import getopt
+import code_blocks
+import fontconfig as fc
+from fontconfig import \
+    FC
+
+def format_uniset(cs) :
+    return \
+        "{%s}" % ", ".join("U+%04X" % c for c in sorted(cs))
+#end format_uniset
+
+blocks = dict((c.name.lower(), c) for c in code_blocks.code_blocks)
+
+trim = False
+debug = False
+use_prop_iter = True
+opts, args = getopt.getopt \
+  (
+    sys.argv[1:],
+    "",
+   ("trim",)
+  )
+for keyword, value in opts :
+    if keyword == "--trim" :
+        trim = True
+    #end if
+#end for
+if len(args) != 1 :
+    raise getopt.GetoptError("usage: %s «blockname»" % sys.argv[0])
+#end if
+block_name = args[0]
+if block_name.lower() not in blocks :
+    raise getopt.GetoptError("no such block as “%s”" % block_name)
+#end if
+block = blocks[block_name.lower()]
+
+conf = fc.Config.get_current()
+coverage_wanted = set(block.range)
+for c in sorted(coverage_wanted) :
+    if unicodedata.name(chr(c), None) == None :
+        sys.stderr.write("no such char %#04x\n" % c)
+    #end if
+#end for
+coverage_wanted -= set(c for c in coverage_wanted if unicodedata.name(chr(c), None) == None)
+pat = fc.Pattern.create \
+  (
+    vals =
+        (
+            (fc.PROP.CHARSET, coverage_wanted),
+        )
+  )
+conf.substitute(pat, FC.MatchPattern)
+pat.default_substitute()
+if debug :
+    if use_prop_iter :
+        # use iterator to output props
+        for prop, id, val in pat.iter_props() :
+            sys.stdout.write("match prop %s[%d] = %s\n" % (prop.value, id, val))
+        #end for
+    else :
+        # output props the long way
+        for prop in fc.PROP :
+            i = 0
+            while True :
+                val, status = pat.get(prop, i)
+                if status != FC.ResultMatch :
+                    break
+                sys.stdout.write("match prop %s[%d] = %s\n" % (prop.value, i, val))
+                i += 1
+            #end while
+        #end for
+    #end if
+#end if
+
+found, coverage, status = conf.font_sort(pat, trim = trim, want_coverage = True)
+if debug :
+    sys.stdout.write \
+      (
+            "font_sort status = %d, coverage = %s, missing = %s\n"
+        %
+            (status, format_uniset(coverage), format_uniset(coverage_wanted - coverage))
+      )
+#end if
+count_present = 0
+for i, f in enumerate(found) :
+    present = coverage_wanted & f.get(fc.PROP.CHARSET, 0)[0]
+    missing = coverage_wanted - present
+    if len(present) != 0 :
+        count_present += 1
+        sys.stdout.write \
+          (
+                "found[%d]: %s (%s), present = %d, missing(%d) = %s\n"
+            %
+                (
+                    i,
+                    f.get(fc.PROP.FAMILY, 0)[0],
+                    f.get(fc.PROP.STYLE, 0)[0],
+                    len(present),
+                    len(missing),
+                    format_uniset(missing),
+                )
+          )
+    #end if
+#end for
+if count_present == 0 :
+    sys.stdout.write("(none found)\n")
+#end if
