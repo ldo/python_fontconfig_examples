@@ -1,0 +1,252 @@
+#!/usr/bin/python3
+#+
+# Example use of python_fontconfig: display a given character
+# in all currently-available fonts that have it. Also requires
+# my Qahirah module. Invoke this script as
+#
+#     all_fonts_with_char «char» «outfile»
+#
+# will generate a PNG file named «outfile» containing depictions of
+# character «char» (either an integer character code or the usual
+# “U+«hex»” format) in all available fonts where it can be found.
+#
+# For example, the command
+#
+#     all_fonts_with_char u+1f427 penguin.png
+#
+# will create penguin.png showing the U+1F427 PENGUIN character in all
+# fonts that have it.
+#
+# Copyright 2020 by Lawrence D'Oliveiro <ldo@geek-central.gen.nz>. This
+# script is licensed CC0
+# <https://creativecommons.org/publicdomain/zero/1.0/>; do with it
+# what you will.
+#-
+
+import sys
+import math
+import unicodedata
+import getopt
+import qahirah as qah
+from qahirah import \
+    CAIRO, \
+    Colour, \
+    Matrix, \
+    Vector
+import fontconfig as fc
+from fontconfig import \
+    FC
+
+font_size = 72
+label_size = 12
+margin = Vector(10, 10)
+label_gap = 10
+dpi = qah.base_dpi
+opts, args = getopt.getopt \
+  (
+    sys.argv[1:],
+    "",
+    []
+  )
+if len(args) != 2 :
+    raise getopt.GetoptError("Usage: %s «char» «outfile»" % sys.args[0])
+#end if
+char, outfilename = args
+if char.lower().startswith("u+") :
+    char = int(char[2:], 16)
+else :
+    char = int(char)
+#end if
+char_name = unicodedata.name(chr(char), None)
+title = "U+%04X" % char
+if char_name != None :
+    title += " " + char_name
+#end if
+
+conf = fc.Config.get_current()
+pat = fc.Pattern.create \
+  (
+    vals =
+        (
+            (fc.PROP.CHARSET, {char}),
+            # trying to omit bitmap-only fonts (e.g. Unifont), but none of these work
+            #(fc.PROP.SCALABLE, True),
+            #(fc.PROP.EMBEDDED_BITMAP, False),
+        )
+  )
+conf.substitute(pat, FC.MatchPattern)
+pat.default_substitute()
+
+found = conf.font_sort(pat, trim = False, want_coverage = False)[0]
+i = 0
+entries = []
+for f in found :
+    if char in f.get(fc.PROP.CHARSET, 0)[0] :
+        i += 1
+        name = "%s (%s)" % (f.get(fc.PROP.FAMILY, 0)[0], f.get(fc.PROP.STYLE, 0)[0])
+        sys.stdout.write \
+          (
+                "found[%d]: %s, %s\n"
+            %
+                (
+                    i,
+                    name,
+                    ", ".join
+                      (
+                        "%s=%s" % (p.value, f.get(p, 0)[0])
+                        for p in
+                          (
+                            fc.PROP.SCALABLE,
+                            fc.PROP.EMBEDDED_BITMAP,
+                            fc.PROP.OUTLINE,
+                            fc.PROP.SIZE,
+                            fc.PROP.PIXEL_SIZE,
+                            fc.PROP.FONTFORMAT,
+                            fc.PROP.CAPABILITY,
+                            fc.PROP.DPI,
+                            fc.PROP.COLOR,
+                            fc.PROP.SCALE,
+                            fc.PROP.PRGNAME,
+                            fc.PROP.POSTSCRIPT_NAME,
+                          )
+                      )
+                )
+          )
+        face = qah.FontFace.create_for_pattern(f, config = conf)
+        font = \
+            (qah.Context.create_for_dummy()
+                .set_font_face(face)
+                .set_font_size(font_size)
+            ).scaled_font
+        # Unfortunately, Context.text_path() on a zero-bounds dummy ImageSurface
+        # doesn’t add outlines to the path at all.
+        extents = font.text_extents(chr(char))
+        fudge_factor = 1.2
+        path = \
+            (qah.Context.create
+              (
+                qah.ImageSurface.create
+                  (
+                    format = CAIRO.FORMAT_RGB24,
+                    dimensions = round(extents.bounds.dimensions * fudge_factor)
+                  )
+              )
+                .translate(- Vector(extents.x_bearing, extents.y_bearing) * fudge_factor)
+                .set_scaled_font(font)
+                .new_path()
+                .move_to((0, 0))
+                .text_path(chr(char))
+            ).copy_path()
+        entries.append((name, path, path.extents()))
+    #end if
+#end for
+nr_cols = math.ceil(math.sqrt(len(entries)))
+nr_rows = math.ceil(len(entries) / nr_cols)
+label_font = \
+    (qah.Context.create_for_dummy()
+        .set_font_face(qah.FontFace.create_for_pattern("sans-serif:weight=200"))
+        .set_font_size(label_size)
+    ).scaled_font
+max_char_dimensions = Vector \
+  (
+    x = max(e[2].dimensions.x for e in entries),
+    y = max(e[2].dimensions.y for e in entries)
+  )
+max_label_width = max(label_font.text_extents(e[0]).x_advance for e in entries)
+item_width = max(max_char_dimensions.x, max_label_width)
+label_height = label_font.font_extents.height
+label_baseline = \
+  (
+        label_height
+    -
+        (label_font.font_extents.ascent - label_font.font_extents.descent) / 2
+  )
+figure_dimensions = Vector \
+  (
+    item_width,
+    max_char_dimensions.y + label_gap + label_height
+  )
+pix = qah.ImageSurface.create \
+  (
+    format = CAIRO.FORMAT_RGB24,
+    dimensions =
+        round
+          (
+                (
+                    (figure_dimensions + margin) * Vector(nr_cols, nr_rows)
+                +
+                    margin
+                +
+                    Vector(0, label_height + margin.y)
+                )
+            *
+                dpi
+            /
+                qah.base_dpi
+          )
+  )
+ctx = \
+    (qah.Context.create(pix)
+        .scale(dpi / qah.base_dpi)
+        .set_source_colour(Colour.grey(1, 1))
+        .paint()
+        .set_source_colour(Colour.grey(0, 1))
+        .set_scaled_font(label_font)
+        .set_line_width(1)
+    )
+ctx.move_to \
+  ((
+        (
+                (figure_dimensions + margin).x * nr_cols
+            +
+                margin.x
+            -
+                label_font.text_extents(title).x_advance
+        )
+    /
+        2,
+    margin.y + label_height - label_baseline
+  ))
+ctx.show_text(title)
+row = col = 0
+for name, path, path_extents in entries :
+    (ctx
+        .save()
+        .translate
+          (
+                margin
+            +
+                (margin + figure_dimensions) * Vector(col, row)
+            +
+                Vector(0, label_height + margin.y)
+          )
+        .new_path()
+        .append_path
+          (
+            path.transform
+              (
+                Matrix.translate
+                  (
+                        Vector(item_width, max_char_dimensions.y) / 2
+                    -
+                        (path_extents.dimensions / 2 + path_extents.topleft)
+                  )
+              )
+          )
+        .stroke()
+        .move_to
+          ((
+            (figure_dimensions.x - label_font.text_extents(name).x_advance) / 2,
+            figure_dimensions.y - label_baseline
+          ))
+        .show_text(name)
+        .restore()
+    )
+    col += 1
+    if col == nr_cols :
+        col = 0
+        row += 1
+    #end if
+#end for
+
+pix.flush().write_to_png(outfilename)
