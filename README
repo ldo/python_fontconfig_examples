@@ -1,13 +1,15 @@
 Here are some examples of the use of my Python binding
 ([GitLab](https://gitlab.com/ldo/python_fontconfig),
-[GitHub](https://github.com/ldo/python_fontconfig)) for the
-Fontconfig font-matching library. The header comments for
-each script explain what it does.
+[GitHub](https://github.com/ldo/python_fontconfig)) for the Fontconfig
+font-matching library. The header comments for each script explain
+what it does.
 
 The all_fonts_with_char script also requires Qahirah
 ([GitLab](https://gitlab.com/ldo/qahirah),
 [GitHub](https://github.com/ldo/qahirah)), my Cairo graphics wrapper,
-to be installed.
+to be installed, and the collect_opentype_fonts script requires HarfPy
+([GitLab](https://gitlab.com/ldo/harfpy),
+[GitHub](https://github.com/ldo/harfpy)), my wrapper for HarfBuzz.
 
 Lawrence D'Oliveiro <ldo@geek-central.gen.nz>
-2020 May 20
+2020 June 14
