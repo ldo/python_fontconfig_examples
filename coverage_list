@@ -65,12 +65,16 @@ block = blocks[block_name.lower()]
 
 conf = fc.Config.get_current()
 coverage_wanted = set(block.range)
-for c in sorted(coverage_wanted) :
-    if unicodedata.name(chr(c), None) == None :
-        sys.stderr.write("no such char %#04x\n" % c)
-    #end if
-#end for
-coverage_wanted -= set(c for c in coverage_wanted if unicodedata.name(chr(c), None) == None)
+undefined_chars = set(c for c in coverage_wanted if unicodedata.name(chr(c), None) == None)
+if len(undefined_chars) != 0 :
+    sys.stderr.write \
+      (
+            "omitting undefined chars: {%s}\n"
+        %
+            ", ".join("U+%05X" % c for c in sorted(undefined_chars))
+      )
+#end if
+coverage_wanted -= undefined_chars
 pat = fc.Pattern.create \
   (
     vals =
