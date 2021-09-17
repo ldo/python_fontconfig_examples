@@ -8,7 +8,7 @@
 # all font features found for all OpenType-supporting fonts.
 #
 # Unfortunately, Fontconfig itself does not provide any info on OpenType
-# font features, so this has to be obtained from HarfBuzz, Therefore,
+# font features, so this has to be obtained from HarfBuzz. Therefore,
 # this script needs HarfPy, my Python wrapper for HarfBuzz.
 #
 # This database can be used to do some useful queries on your installed fonts.
