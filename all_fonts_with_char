@@ -140,6 +140,9 @@ for f in found :
         entries.append((name, path, path.extents()))
     #end if
 #end for
+if len(entries) == 0 :
+    raise RuntimeError("nothing found for %s" % char_name)
+#end if
 nr_cols = math.ceil(math.sqrt(len(entries)))
 nr_rows = math.ceil(len(entries) / nr_cols)
 label_font = \
